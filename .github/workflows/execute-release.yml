@@ -121,11 +121,14 @@ jobs:
             source_tag=$(jq -r '.source_tag' <<<"$variant")
             ref="${REGISTRY}/${image}:${source_tag}"
 
+            # Validate the manifest first, then read the digest: the tag is
+            # mutable and can flip to the multi-arch index between the two
+            # reads, so the digest must come from a read after the check.
             digest=""
             for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
-              digest=$(skopeo inspect --format '{{.Digest}}' "docker://${ref}")
               raw_manifest=$(skopeo inspect --raw "docker://${ref}")
               if is_multiarch "$raw_manifest"; then
+                digest=$(skopeo inspect --format '{{.Digest}}' "docker://${ref}")
                 break
               fi
               media_type=$(jq -r '.mediaType // "unknown"' <<<"$raw_manifest")
@@ -133,7 +136,7 @@ jobs:
                 echo "::error::${source_tag} for ${image} is still a single-architecture manifest (mediaType=${media_type}) after ${MAX_ATTEMPTS} attempts. The amd64/arm64 multi-arch index was not published in time (see issue #421, #544)."
                 exit 1
               fi
-              echo "::warning::${source_tag} for ${image} resolved to ${digest} (mediaType=${media_type}), not yet a multi-arch index. Waiting ${RETRY_DELAY_SECONDS}s for the assembly to catch up (attempt ${attempt}/${MAX_ATTEMPTS})..."
+              echo "::warning::${source_tag} for ${image} is not yet a multi-arch index (mediaType=${media_type}). Waiting ${RETRY_DELAY_SECONDS}s for the assembly to catch up (attempt ${attempt}/${MAX_ATTEMPTS})..."
               sleep "$RETRY_DELAY_SECONDS"
             done
 
